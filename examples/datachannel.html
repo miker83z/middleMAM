@@ -1,0 +1,57 @@
+<html>
+
+<head>
+    <title>middleMAM Data Channel</title>
+    <script src="../dist/middlemam.lib.js"></script>
+</head>
+
+<body>
+    <div id="logs">
+    </div>
+    <input id="chat" disabled type="text" onkeypress="return keyPress(event)" style="width:100%;" placeholder="Type chat messages here when connected" id="chat" />
+</body>
+<script>
+// Messaging functions
+const logDiv = document.getElementById('logs');
+const escapeHTML = unsafe_str => {
+    return unsafe_str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/\'/g, '&#39;')
+        .replace(/\//g, '&#x2F;');
+};
+
+const log = msg => logDiv.innerHTML += escapeHTML(msg) + "<br />";
+
+const keyPress = e => {
+    if (e.keyCode == 13) {
+        let msg = e.currentTarget.value;
+        log('You : ' + msg);
+        channel.sendMessage(msg);
+        console.log("Sending over datachannel: " + msg);
+        e.currentTarget.value = "";
+        return false;
+    }
+};
+///////////////////
+// Setup
+var secretKey = 'VLVIFBLSBVLRIULSIEIQIGFEYD';
+var provider = 'https://nodes.devnet.iota.org';
+var config = { "iceServers": [{ "url": "stun:stun.l.google.com:19302" }] };
+// Start opening local data channel
+var channel = new MiddleMAM.DataChannel(secretKey, secretKey, provider, config);
+// Request other user MAM root
+var root = prompt("Please enter root to listen");
+channel.connect(root, secretKey);
+// Listeners
+channel.on('channelOpen', function() {
+    document.getElementById('chat').disabled = false;
+});
+channel.on('msgComing', function(msgComing) {
+    log('Other : ' + msgComing);
+});
+</script>
+
+</html>

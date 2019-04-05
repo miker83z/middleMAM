@@ -1,0 +1,21 @@
+{
+  "name": "middleMAM",
+  "version": "0.0.1",
+  "description": "A WebRTC MAM powered channel",
+  "private": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@iota/mam": "^0.6.0",
+    "crypto-js": "^3.1.9-1",
+    "events": "^3.0.0"
+  },
+  "keywords": [],
+  "author": "Mirko Zichichi",
+  "license": "MIT",
+  "devDependencies": {
+    "webpack": "^4.29.6",
+    "webpack-cli": "^3.3.0"
+  }
+}
