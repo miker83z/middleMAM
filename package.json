@@ -1,6 +1,6 @@
 {
   "name": "middleMAM",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "A WebRTC MAM powered channel",
   "private": true,
   "scripts": {
@@ -8,8 +8,11 @@
   },
   "dependencies": {
     "@iota/mam": "^0.6.0",
+    "babel-cli": "^6.26.0",
+    "babel-preset-es2015": "^6.24.1",
     "crypto-js": "^3.1.9-1",
-    "events": "^3.0.0"
+    "events": "^3.0.0",
+    "seedrandom": "^3.0.1"
   },
   "keywords": [],
   "author": "Mirko Zichichi",

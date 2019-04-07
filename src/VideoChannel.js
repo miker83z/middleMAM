@@ -1,11 +1,11 @@
-const MiddleMAM = require('./MiddleMAM.js');
-const EventEmitter = require('events');
+import MiddleMAM from './MiddleMAM.js';
+import EventEmitter from 'events';
 
 class VideoChannel extends EventEmitter {
-    constructor(mamChannelSecretKey, iotaProvider, peerConfig) {
+    constructor(seedSecretKey, iotaProvider, peerConfig) {
         super();
         let settings = {
-            mamChannelSecretKey: mamChannelSecretKey,
+            seedSecretKey: seedSecretKey,
             iotaProvider: iotaProvider,
             peerConfig: peerConfig,
             sdpConstraints: {},
@@ -20,8 +20,8 @@ class VideoChannel extends EventEmitter {
         });
     }
 
-    connect(root, secretKey) {
-        this.middleMAM.connect(root, secretKey);
+    connect() {
+        this.middleMAM.connect();
     }
 
     addStream(stream) {

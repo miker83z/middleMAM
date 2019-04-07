@@ -1,12 +1,12 @@
-const MiddleMAM = require('./MiddleMAM.js');
-const CryptoJS = require("crypto-js");
-const EventEmitter = require('events');
+import MiddleMAM from './MiddleMAM.js';
+import EventEmitter from 'events';
+import CryptoJS from 'crypto-js';
 
 class DataChannel extends EventEmitter {
-    constructor(mamChannelSecretKey, dataChannelSecretKey, iotaProvider, peerConfig) {
+    constructor(seedSecretKey, dataChannelSecretKey, iotaProvider, peerConfig) {
         super();
         let settings = {
-            mamChannelSecretKey: mamChannelSecretKey,
+            seedSecretKey: seedSecretKey,
             iotaProvider: iotaProvider,
             peerConfig: peerConfig,
             sdpConstraints: {
@@ -20,7 +20,9 @@ class DataChannel extends EventEmitter {
         this.middleMAM = new MiddleMAM(settings);
         this.encryptionKey = dataChannelSecretKey;
 
-        this.dataChannel = this.middleMAM.peerConnection.createDataChannel("datachannel", { reliable: false });
+        this.dataChannel = this.middleMAM.peerConnection.createDataChannel("datachannel", {
+            reliable: false
+        });
         this.dataChannel.onopen = () => {
             console.log("|------ Data Channel Opened ------|");
             this.emit('channelOpen');
@@ -44,8 +46,8 @@ class DataChannel extends EventEmitter {
         };
     }
 
-    connect(root, secretKey) {
-        this.middleMAM.connect(root, secretKey);
+    connect() {
+        this.middleMAM.connect();
     }
 
     sendMessage(msg) {
