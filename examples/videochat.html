@@ -1,52 +1,56 @@
 <html>
-
-<head>
+  <head>
     <title>middleMAM Video Chat</title>
     <script src="../dist/middlemam.lib.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet">
-</head>
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+  </head>
 
-<body>
+  <body>
     <video id="myVideo" autoplay muted></video>
     <br />
     <video id="otherVideo" autoplay></video>
     <br />
-</body>
-<script>
+  </body>
+  <script>
     // Video functions
-    var myVideo = document.getElementById("myVideo");
-    var otherVideo = document.getElementById("otherVideo");
+    var myVideo = document.getElementById('myVideo');
+    var otherVideo = document.getElementById('otherVideo');
 
     function showMyVideo() {
-        navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: true
-            })
-            .then(stream => myVideo.srcObject = stream)
-            .then(stream => channel.addStream(stream));
+      navigator.mediaDevices
+        .getUserMedia({
+          audio: true,
+          video: true
+        })
+        .then(stream => (myVideo.srcObject = stream))
+        .then(stream => channel.addStream(stream));
     }
     ///////////////////
     // Setup
     var seedSecretKey = null;
-    var provider = 'https://nodes.devnet.iota.org';
-    var config = {
-        "iceServers": [{
-            "url": "stun:stun.l.google.com:19302"
-        }]
-    };
-
     while (seedSecretKey === null) {
-        seedSecretKey = prompt("Please enter chat key");
+      seedSecretKey = prompt('Please enter chat key');
     }
 
     // Start opening local data channel
-    var channel = new MiddleMAM.VideoChannel(seedSecretKey, provider, config);
+    var middleMAM = new MiddleMAM.MiddleMAM({
+      seedSecretKey: seedSecretKey,
+      iotaProvider: 'https://nodes.devnet.iota.org:443',
+      peerConfig: {
+        iceServers: [{ url: 'stun:stun.l.google.com:19302' }]
+      },
+      sdpConstraints: {},
+      connection: null
+    });
+    var channel = new MiddleMAM.VideoChannel(middleMAM);
     showMyVideo();
     channel.connect();
     // Listener
-    channel.on('streamComing', function (stream) {
-        otherVideo.srcObject = stream;
+    channel.on('streamComing', function(stream) {
+      otherVideo.srcObject = stream;
     });
-</script>
-
+  </script>
 </html>

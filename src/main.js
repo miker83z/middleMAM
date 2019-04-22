@@ -1,3 +1,5 @@
-const VideoChannel = require('./VideoChannel').default;
-const DataChannel = require('./DataChannel').default;
-module.exports = { VideoChannel, DataChannel };
+const MiddleMAM = require('./MiddleMAM');
+const DataChannel = require('./DataChannel');
+const VideoChannel = require('./VideoChannel');
+
+module.exports = { MiddleMAM, DataChannel, VideoChannel };

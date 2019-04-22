@@ -1,83 +1,161 @@
-import {
-    init,
-    changeMode,
-    getRoot as _getRoot,
-    create,
-    attach,
-    fetch as _fetch,
-    fetchSingle
-} from '@iota/mam';
-import {
-    asciiToTrytes,
-    trytesToAscii
-} from '@iota/converter';
-import seedrandom from 'seedrandom';
+const MAM = require('@iota/mam');
+const converter = require('@iota/converter');
+const seedrandom = require('seedrandom');
 
 class MAMChannel {
-    constructor(mode, seedKey, sideKey, provider) {
-        this.mode = mode;
-        this.seed = this.iotaSeedGen(seedKey);
-        this.sideKey = sideKey;
-        this.provider = provider;
-        this.mamState = null;
+  /**
+   * Constructor
+   * @param {String} mode - MAM channel mode: 'public','private','restricted'
+   * @param {String} provider - IOTA provider
+   * @param {String} seed - The IOTA seed or a key used to generate it
+   * @param {String} sideKey - The secret key for 'restricted' mode
+   */
+  constructor(mode, provider, seed = null, sideKey = null) {
+    this.mode = mode;
+    this.provider = provider;
+    this.seed =
+      seed && seed.length === 81 && /[A-Z9]/.test(seed)
+        ? seed
+        : MAMChannel.utils.iotaSeedGen(seed);
+    this.sideKey = sideKey;
+    this.mamState = null;
+  }
+
+  /**
+   * Open or create and set channel mode
+   */
+  openChannel() {
+    this.mamState = MAM.init(this.provider, this.seed);
+    this.mamState = MAM.changeMode(this.mamState, this.mode, this.sideKey);
+  }
+
+  /**
+   * Change the secret key to use from now on
+   * @param {String} key - The new key
+   */
+  changeKey(key) {
+    this.sideKey = key;
+    this.mamState = MAM.changeMode(this.mamState, this.mode, this.sideKey);
+  }
+
+  /**
+   * Return the actual state root
+   * @returns {String} The root
+   */
+  getRoot() {
+    return MAM.getRoot(this.mamState);
+  }
+
+  /**
+   * Publish a message to tangle
+   * @param {Object} packet - The message (a JSON object)
+   * @returns {String} The message's root
+   */
+  async publish(packet) {
+    // Create MAM Payload - STRING OF TRYTES
+    let trytes = converter.asciiToTrytes(JSON.stringify(packet));
+    let message = null;
+    let limit = 20;
+    // Search for messages already present in the tangle with that root
+    do {
+      message = MAM.create(this.mamState, trytes);
+      this.mamState = message.state;
+    } while (
+      typeof (await MAM.fetchSingle(message.root, this.mode, this.sideKey))
+        .payload !== 'undefined' &&
+      limit++ > 0
+    );
+
+    // Attach the payload to the channel
+    try {
+      await MAM.attach(message.payload, message.address, 3, 9);
+      console.log(
+        'Published on MAM channel:\n',
+        packet,
+        '\nRoot:',
+        message.root,
+        '\n'
+      );
+    } catch (e) {
+      console.log(e);
     }
+    return message.root;
+  }
 
-    // Generate a random iota seed through the key  
-    iotaSeedGen(key) {
-        const rng = seedrandom(key);
-        const iotaSeedLength = 81;
-        const seedCharset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ9';
-        let result = '';
+  /**
+   * Fetch messages from the current state's root
+   * @returns {Object} A JSON object with all the messages fetched and next root
+   */
+  async fetch() {
+    return await this.fetchFrom(this.getRoot());
+  }
 
-        for (let i = 0; i < iotaSeedLength; i++) {
-            const x = Math.round(rng() * seedCharset.length) % seedCharset.length;
-            result += seedCharset[x];
-        }
-
-        return result;
+  /**
+   * Fetch messages from root
+   * @param {String} root - The root to start fetching
+   * @returns {Object} A JSON object with all the messages fetched and next root
+   */
+  async fetchFrom(root) {
+    let result = await MAM.fetch(root, this.mode, this.sideKey);
+    if (typeof result.messages !== 'undefined' && result.messages.length > 0) {
+      for (var i = result.messages.length - 1; i >= 0; i--) {
+        result.messages[i] = JSON.parse(
+          converter.trytesToAscii(result.messages[i])
+        );
+      }
     }
+    return result;
+  }
 
-    // Create and set channel mode
-    createChannel() {
-        this.mamState = init(this.provider, this.seed);
-        this.mamState = changeMode(this.mamState, this.mode, this.sideKey);
+  /**
+   * Fetch messages from root using a different key for each one
+   * @param {String} root - The root to start fetching
+   * @param {String[]} keys - The keys array
+   * @returns {Object} A JSON object with all the messages fetched and next root
+   */
+  async fetchMultipleKeys(root, keys) {
+    let result = {
+      messages: [],
+      nextRoot: root
+    };
+    for (let i = 0; i < keys.length; i++) {
+      const tmpResult = await MAM.fetchSingle(
+        result.nextRoot,
+        this.mode,
+        keys[i]
+      );
+      if (typeof tmpResult.payload !== 'undefined') {
+        result.messages.push(
+          JSON.parse(converter.trytesToAscii(tmpResult.payload))
+        );
+        result.nextRoot = tmpResult.nextRoot;
+      } else {
+        break;
+      }
     }
-
-    // Return the root of the state
-    getRoot() {
-        return _getRoot(this.mamState);
-    }
-
-    // Publish to tangle
-    async publish(packet) {
-        // Create MAM Payload - STRING OF TRYTES
-        let trytes = asciiToTrytes(JSON.stringify(packet));
-        let message = null;
-        let limit = 0;
-        do {
-            message = create(this.mamState, trytes);
-            this.mamState = message.state;
-        } while (typeof (await fetchSingle(message.root, this.mode)).payload !== 'undefined' && limit++ < 20);
-
-        // Attach the payload
-        try {
-            await attach(message.payload, message.address, 3, 9);
-            console.log('Published:', packet, '\nRoot:', message.root, '\n');
-        } catch (e) {
-            console.log(e);
-        }
-        return message.root;
-    }
-
-    async fetch(root) {
-        let result = await _fetch(root, this.mode, this.sideKey);
-        if (typeof result.messages !== 'undefined' && result.messages.length > 0) {
-            for (var i = result.messages.length - 1; i >= 0; i--) {
-                result.messages[i] = JSON.parse(trytesToAscii(result.messages[i]));
-            }
-        }
-        return result;
-    }
+    return result;
+  }
 }
 
-export default MAMChannel;
+MAMChannel.utils = {
+  /**
+   * Generate a random iota seed through a key
+   * @param {String} key
+   * @returns {String} The generated seed
+   */
+  iotaSeedGen(key) {
+    const rng = seedrandom(key);
+    const iotaSeedLength = 81;
+    const seedCharset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ9';
+    let result = '';
+
+    for (let i = 0; i < iotaSeedLength; i++) {
+      const x = Math.round(rng() * seedCharset.length) % seedCharset.length;
+      result += seedCharset[x];
+    }
+
+    return result;
+  }
+};
+
+module.exports = MAMChannel;

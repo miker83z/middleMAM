@@ -1,119 +1,168 @@
-import MAMChannel from './MAMChannel.js';
+const MAMChannel = require('./MAMChannel.js');
 
 class MiddleMAM {
-    constructor(settings) {
-        this.mode = 'private';
-        this.config = settings.peerConfig;
-        this.connection = settings.connection;
-        this.sdpConstraints = settings.sdpConstraints;
-        this.id = Math.floor(Math.random() * 1000000000);
+  /**
+   * Constructor
+   * @param {Object} settings - Parameters required for middleMAM
+   */
+  constructor(settings) {
+    this.mode = 'private';
+    this.config = settings.peerConfig;
+    this.connection = settings.connection;
+    this.sdpConstraints = settings.sdpConstraints;
+    this.id = Math.floor(Math.random() * 1000000000);
 
-        this.offered = false;
-        this.localDescriptionSet = false;
-        this.stop = false;
+    this.offered = false;
+    this.localDescriptionSet = false;
+    this.stop = false;
 
-        // 0 - Create MAMChannel
-        this.mam = new MAMChannel(this.mode, settings.seedSecretKey, null, settings.iotaProvider);
-        this.mam.createChannel();
-        console.log(this.mam.getRoot());
+    // Open MAMChannel
+    this.mam = new MAMChannel(
+      this.mode,
+      settings.iotaProvider,
+      settings.seedSecretKey,
+      null
+    );
+    this.mam.openChannel();
+    console.log(this.mam.getRoot());
 
-        // 1 - Create PeerConnection with connection and config parameters
-        this.peerConnection = new RTCPeerConnection(this.config, this.connection);
-        // Set PeerConnection onIceCandidate event handler, to gather ice candidates and send them to the other user
-        this.peerConnection.onicecandidate = e => {
-            if (!this.peerConnection || !e || !e.candidate) return;
-            var candidate = event.candidate;
-            this.sendNegotiationMsg(this.id, "candidate", candidate);
-        };
+    // Create a PeerConnection with connection and config parameters
+    this.peerConnection = new RTCPeerConnection(this.config, this.connection);
+  }
+
+  /**
+   * Starts reading from MAM Channel every 2 sec searcing for offers or answers
+   */
+  async connect() {
+    let actualRoot = this.mam.getRoot();
+    while (!this.stop) {
+      console.log('Searching for ' + actualRoot);
+      const result = await this.mam.fetchFrom(actualRoot);
+      if (
+        typeof result.messages !== 'undefined' &&
+        result.messages.length > 0
+      ) {
+        result.messages.forEach(message => this.processNegotiationMsg(message));
+        actualRoot = result.nextRoot;
+      }
+      if (!this.offered) {
+        this.sendOffer();
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
+  }
 
-    // Send message to the signaling server - MAM channel
-    async sendNegotiationMsg(from, type, sdp) {
-        const json = {
-            from: from,
-            action: type,
-            data: sdp
-        };
-        console.log("Sending: " + JSON.stringify(json));
-        return await this.mam.publish(json);
+  /**
+   * Start Data Channel sending an offer
+   */
+  async sendOffer() {
+    // Create the offer, then set the local description and send the offer
+    try {
+      // Create offer
+      const offer = await this.peerConnection.createOffer();
+      // Set LocalDescription if not already done
+      if (!this.localDescriptionSet) {
+        await this.peerConnection.setLocalDescription(offer);
+        await this.waitForAllICEs();
+        this.localDescriptionSet = true;
+      }
+      // Send offer
+      console.log('|------- Sending Offer -------|');
+      this.sendNegotiationMsg(
+        'offer',
+        this.peerConnection.localDescription
+      ).then(() => (this.offered = true));
+    } catch (e) {
+      console.log(e);
     }
+  }
 
-    processNegotiationMsg(json) {
-        if (json.from !== this.id) {
-            console.log('Fetched', json, '\n');
-            if (json.action == "candidate") {
-                this.peerConnection.addIceCandidate(
-                    new RTCIceCandidate(json.data)
-                ).catch(e => console.log(e));
+  /**
+   * Send message to the signaling server i.e. MAM channel
+   * @param {String} type - The message type: 'offer' or 'answer'
+   * @param {Object} payload - The message's payload
+   * @returns {String} The message's root
+   */
+  async sendNegotiationMsg(type, payload) {
+    const msg = {
+      from: this.id,
+      action: type,
+      data: payload
+    };
+    console.log('Sending: ' + JSON.stringify(msg));
+    return await this.mam.publish(msg);
+  }
 
-            } else if (json.action == "offer") {
-                this.offered = true;
-                this.processOffer(json.data);
-
-            } else if (json.action == "answer") {
-                this.peerConnection.setRemoteDescription(
-                    new RTCSessionDescription(json.data));
-                console.log("|------ Processed Answer ------|");
-            }
-        }
+  /**
+   * Process msgs coming from the signaling server i.e. MAM channel
+   * @param {Object} msg - The message received from the other peer
+   */
+  processNegotiationMsg(msg) {
+    if (msg.from !== this.id) {
+      console.log('Fetched', msg, '\n');
+      if (msg.action == 'offer') {
+        this.offered = true;
+        this.processOffer(msg.data);
+      } else if (msg.action == 'answer') {
+        this.processAnswer(msg.data);
+      }
     }
+  }
 
-    // 3B - Connect to offered Data Channel
-    processOffer(offer) {
-        // Create answer and set the remoteDescription to the offer sdp
-        this.peerConnection.setRemoteDescription(
-                new RTCSessionDescription(offer)
-            ).then(() => this.peerConnection.createAnswer(this.sdpConstraints))
-            .then(sdp => {
-                if (!this.localDescriptionSet) {
-                    this.peerConnection.setLocalDescription(sdp);
-                    this.localDescriptionSet = true;
-                }
-            })
-            .then(() => {
-                console.log("|------ Sending Answer ------|");
-                this.sendNegotiationMsg(this.id, "answer", this.peerConnection.localDescription);
-            })
-            .catch(e => console.log(e));
-
-        console.log("|------ Processed Offer ------|");
+  /**
+   * Connect to offered Data Channel
+   * @param {Object} offer - The offer received from the other peer
+   */
+  async processOffer(offer) {
+    // Create answer and set the remoteDescription to the offer sdp
+    try {
+      // Set remote description
+      await this.peerConnection.setRemoteDescription(
+        new RTCSessionDescription(offer)
+      );
+      // Create answer
+      const answer = await this.peerConnection.createAnswer(
+        this.sdpConstraints
+      );
+      // Set LocalDescription if not already done
+      if (!this.localDescriptionSet) {
+        await this.peerConnection.setLocalDescription(answer);
+        await this.waitForAllICEs();
+        this.localDescriptionSet = true;
+      }
+      // Send answer
+      console.log('|------ Sending Answer ------|');
+      this.sendNegotiationMsg('answer', this.peerConnection.localDescription);
+      console.log('|------ Processed Offer ------|');
+    } catch (e) {
+      console.log(e);
     }
+  }
 
-    // 3 - Start Data Channel sending an offer
-    sendOffer() {
-        // 4 - Create offer, set LocalDescription and send it: Creates the offer, then sets the local description and sends the offer
-        this.peerConnection.createOffer(this.sdpConstraints)
-            .then(sdp => {
-                if (!this.localDescriptionSet) {
-                    this.peerConnection.setLocalDescription(sdp);
-                    this.localDescriptionSet = true;
-                }
-            })
-            .then(() => {
-                console.log("|------- Sending Offer -------|");
-                this.sendNegotiationMsg(this.id, "offer", this.peerConnection.localDescription);
-            })
-            .then(() => this.offered = true)
-            .catch(e => console.log(e));
-    }
+  /**
+   * Process the answer received
+   * @param {Object} answer - The answer received from the other peer
+   */
+  processAnswer(answer) {
+    this.peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    console.log('|------ Processed Answer ------|');
+  }
 
-    async connect() {
-        let tmpRoot = this.mam.getRoot();
-        while (!this.stop) {
-            console.log('Searching for ' + tmpRoot);
-            const result = await this.mam.fetch(tmpRoot);
-            if (typeof result.messages !== 'undefined' && result.messages.length > 0) {
-                result.messages.forEach(message => {
-                    this.processNegotiationMsg(message);
-                });
-                tmpRoot = result.nextRoot;
-            }
-            if (!this.offered) {
-                this.sendOffer();
-            }
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-    }
+  /**
+   * Wait for all ice candidates
+   */
+  waitForAllICEs() {
+    // Set PeerConnection onIceCandidate event handler, to gather ice candidates and send them to the other user
+    return new Promise((fufill, reject) => {
+      this.peerConnection.onicecandidate = iceEvent => {
+        if (iceEvent.candidate === null) fufill();
+      };
+      setTimeout(
+        () => reject('Waited a long time for ice candidates...'),
+        10000
+      );
+    });
+  }
 }
 
-export default MiddleMAM;
+module.exports = MiddleMAM;
